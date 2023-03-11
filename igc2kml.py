@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/python3
 import datetime
 import dataclasses
 from typing import List, Optional
@@ -9,7 +9,8 @@ import os.path
 EARTH_RADIUS = 6371e3 # radius of the earth in meters
 # Add launch-sites in format (latitude, longitude) in decimal notation
 LAUNCH_SITES = {"Sonnwendstein": (47.622361, 15.8575),
-                'Hohe Wand': (47.829167, 16.041111)}
+                'Hohe Wand': (47.829167, 16.041111),
+                'Invermere': (50.521301, -116.005644)}
 
 
 @dataclasses.dataclass
@@ -96,6 +97,22 @@ def _write_kml_timeseries(f, data, color_data, color_map_name, cmin, cmax, n_col
         f.write('</Placemark>\n')
     f.write("</Folder>\n")
 
+def _write_kml_path(f, data, color_data, color_map_name, cmin, cmax, n_colors, name=""):
+    f.write('<Placemark>\n')
+    f.write(f'\t<styleUrl>polyline</styleUrl>\n')
+    f.write(f'\t<name>Flight Path</name>')
+    f.write('\t<LineString>\n')
+    f.write('\t<altitudeMode>absolute</altitudeMode>\n')
+    f.write('\t<extrude>1</extrude>\n')
+    f.write('\t<tesselate>1</tesselate>\n')
+    f.write('\t<coordinates>\n')
+    for i in range(data.n_samples - 1):
+        f.write(f'  {data.lon[i]:.6f},{data.lat[i]:.6f},{data.alt[i]:.0f}\n')
+    f.write('\t</coordinates>\n')
+    f.write('\t</LineString>\n')
+    f.write('</Placemark>\n')
+
+
 def _write_kml_colormap(f, name, values):
     for i, c in enumerate(values):
         f.write(f'<Style id="{name}{i}">\n')
@@ -104,6 +121,16 @@ def _write_kml_colormap(f, name, values):
         f.write('\t<width>3</width>\n')
         f.write('\t</LineStyle>\n')
         f.write('</Style>\n')
+    f.write('<Style id="polyline">\n')
+    f.write('<LineStyle>\n')
+    f.write('<color>00ff0000</color>\n')
+    f.write('<width>1</width>\n')
+    f.write('</LineStyle>\n')
+    f.write('<PolyStyle>\n')
+    f.write('<color>7fffffff</color>\n')
+    f.write('</PolyStyle>\n')
+    f.write('</Style>\n')
+
 
 def write_kml(fname, data: FlightData, metadata: dict):
     color_maps = dict(rdgn9=["ff2600a5", "ff2e40de", "ff528ef9", "ff81d4fe", "ffbefffe", "ff82e9cb", "ff66ca84", "ff54a02a", "ff376800"])
@@ -117,7 +144,10 @@ def write_kml(fname, data: FlightData, metadata: dict):
         date = metadata.get('date')
         launch_site = metadata.get('launch_site', "Unknown")
         if date:
-            f.write(f'<name>{launch_site}: {date:%d.%m.%Y}</name>\n')
+            if args.pilot:
+                f.write(f'<name>{launch_site} - {args.pilot}: {date:%d.%m.%Y}</name>\n')
+            else:
+                f.write(f'<name>{launch_site}: {date:%d.%m.%Y}</name>\n')
         # f.write('<description>DESCRIPTION</description>\n')
         f.write("<Folder>\n")
         f.write("<name>Flight track</name>\n")
@@ -126,6 +156,7 @@ def write_kml(fname, data: FlightData, metadata: dict):
         _write_kml_timeseries(f, data, data.vario, 'rdgn9', -4, 4, 9, "Vario [m/s]")
         _write_kml_timeseries(f, data, data.speed, 'rdgn9', 0, 60, 9, "Speed [km/h]")
         f.write("</Folder>")
+        _write_kml_path(f, data, data.speed, 'rdgn9', 0, 60, 9, "Path")
         f.write('</Document>\n')
         f.write('</kml>\n')
 
@@ -159,6 +190,7 @@ if __name__ == '__main__':
     parser.add_argument("input", nargs="+", help="Input file name(s)")
     parser.add_argument("--output", help="Output file name", default=None)
     parser.add_argument("--force", "-f", help="Overwrite output file if it exists", action="store_true")
+    parser.add_argument("--pilot", "-p", help="Pilot's name (will appear on flight path name)", type=str)
     args = parser.parse_args()
 
     for input_fname in args.input:
