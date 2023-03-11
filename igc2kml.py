@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/usr/bin/python3
 import datetime
 import dataclasses
 from typing import List, Optional
@@ -9,7 +9,9 @@ import os.path
 EARTH_RADIUS = 6371e3 # radius of the earth in meters
 # Add launch-sites in format (latitude, longitude) in decimal notation
 LAUNCH_SITES = {"Sonnwendstein": (47.622361, 15.8575),
-                'Hohe Wand': (47.829167, 16.041111)}
+                'Hohe Wand': (47.829167, 16.041111),
+                'Invermere': (50.521301, -116.005644),
+                'York Soaring': (43.838098, -80.440351)}
 
 
 @dataclasses.dataclass
@@ -75,6 +77,7 @@ def parse_igc(fname):
     return FlightData(t=t, lat=lat, lon=lon, alt=alt_gps), meta_data
 
 def _write_kml_timeseries(f, data, color_data, color_map_name, cmin, cmax, n_colors, name=""):
+    global speed_unit_str
     f.write("<Folder>\n")
     f.write(f"<name>{name}</name>")
     for i in range(data.n_samples - 1):
@@ -85,7 +88,7 @@ def _write_kml_timeseries(f, data, color_data, color_map_name, cmin, cmax, n_col
         elif ind_color < 0:
             ind_color = 0
         f.write(f'\t<styleUrl>#{color_map_name}{ind_color}</styleUrl>\n')
-        f.write(f'\t<name>{data.t[i].hour}:{data.t[i].minute}:{data.t[i].second}, {data.alt[i]:.0f}m, {data.speed[i]:.0f}km/h</name>')
+        f.write(f'\t<name>{data.t[i].hour}:{data.t[i].minute}:{data.t[i].second}, {data.alt[i]:.0f}m, {data.speed[i]:.0f}{speed_unit_str}</name>')
         f.write('\t<LineString>\n')
         f.write('\t<altitudeMode>absolute</altitudeMode>\n')
         f.write('\t<coordinates>\n')
@@ -96,6 +99,22 @@ def _write_kml_timeseries(f, data, color_data, color_map_name, cmin, cmax, n_col
         f.write('</Placemark>\n')
     f.write("</Folder>\n")
 
+def _write_kml_path(f, data, color_data, color_map_name, cmin, cmax, n_colors, name=""):
+    f.write('<Placemark>\n')
+    f.write(f'\t<styleUrl>polyline</styleUrl>\n')
+    f.write(f'\t<name>Flight Path</name>')
+    f.write('\t<LineString>\n')
+    f.write('\t<altitudeMode>absolute</altitudeMode>\n')
+    f.write('\t<extrude>1</extrude>\n')
+    f.write('\t<tesselate>1</tesselate>\n')
+    f.write('\t<coordinates>\n')
+    for i in range(data.n_samples - 1):
+        f.write(f'  {data.lon[i]:.6f},{data.lat[i]:.6f},{data.alt[i]:.0f}\n')
+    f.write('\t</coordinates>\n')
+    f.write('\t</LineString>\n')
+    f.write('</Placemark>\n')
+
+
 def _write_kml_colormap(f, name, values):
     for i, c in enumerate(values):
         f.write(f'<Style id="{name}{i}">\n')
@@ -104,8 +123,19 @@ def _write_kml_colormap(f, name, values):
         f.write('\t<width>3</width>\n')
         f.write('\t</LineStyle>\n')
         f.write('</Style>\n')
+    f.write('<Style id="polyline">\n')
+    f.write('<LineStyle>\n')
+    f.write('<color>00ff0000</color>\n')
+    f.write('<width>1</width>\n')
+    f.write('</LineStyle>\n')
+    f.write('<PolyStyle>\n')
+    f.write('<color>7fffffff</color>\n')
+    f.write('</PolyStyle>\n')
+    f.write('</Style>\n')
+
 
 def write_kml(fname, data: FlightData, metadata: dict):
+    global speed_unit_str
     color_maps = dict(rdgn9=["ff2600a5", "ff2e40de", "ff528ef9", "ff81d4fe", "ffbefffe", "ff82e9cb", "ff66ca84", "ff54a02a", "ff376800"])
     with open(fname, 'w') as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -117,15 +147,19 @@ def write_kml(fname, data: FlightData, metadata: dict):
         date = metadata.get('date')
         launch_site = metadata.get('launch_site', "Unknown")
         if date:
-            f.write(f'<name>{launch_site}: {date:%d.%m.%Y}</name>\n')
+            if args.pilot:
+                f.write(f'<name>{launch_site} - {args.pilot}: {date:%d.%m.%Y}</name>\n')
+            else:
+                f.write(f'<name>{launch_site}: {date:%d.%m.%Y}</name>\n')
         # f.write('<description>DESCRIPTION</description>\n')
         f.write("<Folder>\n")
         f.write("<name>Flight track</name>\n")
         f.write("<open>1</open>\n")
         f.write("<Style><ListStyle><listItemType>radioFolder</listItemType></ListStyle></Style>\n")
         _write_kml_timeseries(f, data, data.vario, 'rdgn9', -4, 4, 9, "Vario [m/s]")
-        _write_kml_timeseries(f, data, data.speed, 'rdgn9', 0, 60, 9, "Speed [km/h]")
+        _write_kml_timeseries(f, data, data.speed, 'rdgn9', 0, 60, 9, f"Speed [{speed_unit_str}]")
         f.write("</Folder>")
+        _write_kml_path(f, data, data.speed, 'rdgn9', 0, 60, 9, "Path")
         f.write('</Document>\n')
         f.write('</kml>\n')
 
@@ -142,12 +176,14 @@ def get_nearest_launch_site_name(lat, lon):
 
 
 def process_data(data, meta_data):
+    global speed_conversion_factor
     data.x = [EARTH_RADIUS * math.cos(lat * math.pi / 180) * math.cos(lon * math.pi / 180) for lat, lon in
               zip(data.lat, data.lon)]
     data.y = [EARTH_RADIUS * math.cos(lat * math.pi / 180) * math.sin(lon * math.pi / 180) for lat, lon in
               zip(data.lat, data.lon)]
     data.vario = [data.alt[i + 1] - data.alt[i] for i in range(data.n_samples - 1)] + [0]
-    data.speed = [3.6 * math.sqrt((data.x[i + 1] - data.x[i]) ** 2 + (data.y[i + 1] - data.y[i]) ** 2) for i in
+    timedelta = [data.t[i+1] - data.t[i] for i in range(data.n_samples -1)] + [0.0]
+    data.speed = [speed_conversion_factor/timedelta[i].seconds * math.sqrt((data.x[i + 1] - data.x[i]) ** 2 + (data.y[i + 1] - data.y[i]) ** 2) for i in
                   range(data.n_samples - 1)] + [0.0]
     site_name = get_nearest_launch_site_name(data.lat[0], data.lon[0])
     meta_data['launch_site'] = site_name
@@ -155,11 +191,25 @@ def process_data(data, meta_data):
 
 
 if __name__ == '__main__':
+    global speed_conversion_factor, speed_unit_str
     parser = argparse.ArgumentParser(description="IGC to KML converter for flight logs, so they can be viewed with Google Earth.")
     parser.add_argument("input", nargs="+", help="Input file name(s)")
     parser.add_argument("--output", help="Output file name", default=None)
     parser.add_argument("--force", "-f", help="Overwrite output file if it exists", action="store_true")
+    parser.add_argument("--pilot", "-p", help="Pilot's name (will appear on flight path name)", type=str)
+    parser.add_argument("--xunits", "-x", help="Ground speed units, kts or kmh (default kmh)", type=str, default="kmh")
     args = parser.parse_args()
+
+    # Speed is calculated in metres per second. 1m/s equals 3.6km/h.
+    if args.xunits == "kts":
+        speed_conversion_factor = 1.9438444924406
+        speed_unit_str = "kts"
+    elif args.xunits == "mph":
+        speed_conversion_factor = 2.2369362920544
+        speed_unit_str = "mph"
+    else:
+        speed_conversion_factor = 3.6
+        speed_unit_str = "km/h"
 
     for input_fname in args.input:
         data, meta_data = parse_igc(input_fname)
