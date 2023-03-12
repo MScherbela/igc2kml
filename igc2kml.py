@@ -141,7 +141,7 @@ def _write_kml_colormap(f, name, values):
     f.write('</Style>\n')
 
 
-def write_kml(fname, data: FlightData, metadata: dict, units):
+def write_kml(fname, data: FlightData, metadata: dict):
     color_maps = dict(rdgn9=["ff2600a5", "ff2e40de", "ff528ef9", "ff81d4fe", "ffbefffe", "ff82e9cb", "ff66ca84", "ff54a02a", "ff376800"])
     with open(fname, 'w') as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -163,8 +163,8 @@ def write_kml(fname, data: FlightData, metadata: dict, units):
         f.write("<name>Flight track</name>\n")
         f.write("<open>1</open>\n")
         f.write("<Style><ListStyle><listItemType>radioFolder</listItemType></ListStyle></Style>\n")
-        _write_kml_timeseries(f, data, data.vario, 'rdgn9', -4, 4, 9, units, f"Vario [{meta_data['units'].y}]", meta_data['units'].y)
-        _write_kml_timeseries(f, data, data.speed, 'rdgn9', 0, 60, 9, units, f"Speed [{meta_data['units'].x}]", meta_data['units'].x)
+        _write_kml_timeseries(f, data, data.vario, 'rdgn9', -4, 4, 9, meta_data['units'], f"Vario [{meta_data['units'].y}]", meta_data['units'].y)
+        _write_kml_timeseries(f, data, data.speed, 'rdgn9', 0, 60, 9, meta_data['units'], f"Speed [{meta_data['units'].x}]", meta_data['units'].x)
         f.write("</Folder>")
         _write_kml_path(f, data)
         f.write('</Document>\n')
@@ -239,13 +239,13 @@ if __name__ == '__main__':
 
     for input_fname in args.input:
         data, meta_data = parse_igc(input_fname)
-        data, meta_data = process_data(data, meta_data, units)
+        data, meta_data = process_data(data, meta_data, units)  # "units" becomes part of the "meta_data" dict here
         meta_data["pilot"] = args.pilot
         output_name = args.output or f"{data.t[0]:%Y_%m_%d_%H%M}_{meta_data['launch_site']}.kml"
         if os.path.isfile(output_name) and not args.force:
             print(f"Can not save kml file, because it already exists: {output_name}")
         else:
-            write_kml(output_name, data, meta_data, units)
+            write_kml(output_name, data, meta_data)
 
 
 
