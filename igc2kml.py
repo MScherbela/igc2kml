@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+#%%
 import datetime
 import dataclasses
 from typing import List, Optional
@@ -28,6 +29,14 @@ class FlightData:
     @property
     def n_samples(self):
         return len(self.t)
+
+    @property
+    def t_seconds(self):
+        return [(t - self.t[0]).seconds for t in self.t]
+    
+    @property
+    def duration_sec(self):
+        return (self.t[-1] - self.t[0]).seconds
 
 def get_distance(lat1, lon1, lat2, lon2):
     a = math.sin(lat1 * math.pi / 180) * math.sin(lat2 * math.pi / 180)
@@ -76,7 +85,6 @@ def parse_igc(fname):
     return FlightData(t=t, lat=lat, lon=lon, alt=alt_gps), meta_data
 
 def _write_kml_timeseries(f, data, color_data, color_map_name, cmin, cmax, n_colors, name="", postfix=""):
-    global speed_unit_str
     f.write("<Folder>\n")
     f.write(f"<name>{name}</name>")
     for i in range(data.n_samples - 1):
@@ -87,12 +95,15 @@ def _write_kml_timeseries(f, data, color_data, color_map_name, cmin, cmax, n_col
         elif ind_color < 0:
             ind_color = 0
         f.write(f'\t<styleUrl>#{color_map_name}{ind_color}</styleUrl>\n')
-        f.write(f'\t<name>{data.t[i].hour}:{data.t[i].minute}:{data.t[i].second}, {data.alt[i]:.0f}m, {data.speed[i]:.0f}{postfix}</name>')
+        f.write(f'\t<name>{data.t[i].hour}:{data.t[i].minute}:{data.t[i].second}, {data.alt[i]:.0f}m, {data.speed[i]:.0f}{postfix}</name>\n')
+        f.write('\t<TimeStamp>\n')
+        f.write(f'\t\t<when>{data.t[i].astimezone(datetime.timezone.utc).isoformat()}</when>\n')
+        f.write('\t</TimeStamp>\n')
         f.write('\t<LineString>\n')
         f.write('\t<altitudeMode>absolute</altitudeMode>\n')
         f.write('\t<coordinates>\n')
-        f.write(f'  {data.lon[i]:.6f},{data.lat[i]:.6f},{data.alt[i]:.0f}\n')
-        f.write(f'  {data.lon[i + 1]:.6f},{data.lat[i + 1]:.6f},{data.alt[i + 1]:.0f}\n')
+        f.write(f'\t\t{data.lon[i]:.6f},{data.lat[i]:.6f},{data.alt[i]:.0f}\n')
+        f.write(f'\t\t{data.lon[i + 1]:.6f},{data.lat[i + 1]:.6f},{data.alt[i + 1]:.0f}\n')
         f.write('\t</coordinates>\n')
         f.write('\t</LineString>\n')
         f.write('</Placemark>\n')
@@ -135,7 +146,9 @@ def _write_kml_colormap(f, name, values):
 
 
 def write_kml(fname, data: FlightData, metadata: dict):
-    color_maps = dict(rdgn9=["ff2600a5", "ff2e40de", "ff528ef9", "ff81d4fe", "ffbefffe", "ff82e9cb", "ff66ca84", "ff54a02a", "ff376800"])
+    color_maps = dict(rdgn9=["ff2600a5", "ff2e40de", "ff528ef9", "ff81d4fe", "ffbefffe", "ff82e9cb", "ff66ca84", "ff54a02a", "ff376800"],
+                      jet50=["#FF7F0000", "#FF960000", "#FFAC0000", "#FFC30000", "#FFDA0000", "#FFF50000", "#FFFF0000", "#FFFF1000", "#FFFF2400", "#FFFF3C00", "#FFFF5000", "#FFFF6400", "#FFFF7800", "#FFFF8C00", "#FFFFA400", "#FFFFB800", "#FFFFCC00", "#FFFAE000", "#FFE7F80F", "#FFD7FF1F", "#FFC7FF2F", "#FFB7FF3F", "#FFA6FF4F", "#FF93FF63", "#FF83FF73", "#FF73FF83", "#FF63FF93", "#FF4FFFA6", "#FF3FFFB7", "#FF2FFFC7", "#FF1FFFD7", "#FF0FFFE7", "#FF00F0FA", "#FF00DEFF", "#FF00CBFF", "#FF00B9FF", "#FF00A3FF", "#FF0090FF", "#FF007EFF", "#FF006BFF", "#FF0059FF", "#FF0042FF", "#FF0030FF", "#FF001DFF", "#FF000BF5", "#FF0000DA", "#FF0000C3", "#FF0000AC", "#FF000096", "#FF00007F"]
+)
     with open(fname, 'w') as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
         f.write('<kml xmlns="http://earth.google.com/kml/2.0">\n')
@@ -158,6 +171,7 @@ def write_kml(fname, data: FlightData, metadata: dict):
         f.write("<Style><ListStyle><listItemType>radioFolder</listItemType></ListStyle></Style>\n")
         _write_kml_timeseries(f, data, data.vario, 'rdgn9', -4, 4, 9, "Vario [m/s]", "m/s")
         _write_kml_timeseries(f, data, data.speed, 'rdgn9', 0, 60, 9, f"Speed [{meta_data['speed_unit']}]", meta_data['speed_unit'])
+        _write_kml_timeseries(f, data, data.t_seconds, 'jet50', 0, data.duration_sec, 50, "Time [s]", "s")
         f.write("</Folder>")
         _write_kml_path(f, data)
         f.write('</Document>\n')
