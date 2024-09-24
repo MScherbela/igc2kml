@@ -1,0 +1,17 @@
+[project]
+name = "igc2kml"
+version = "0.1.0"
+description = "Convert IGC files from glider flights to KML files, which can be viewed in Google Earth."
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = []
+
+[project.scripts]
+igc2kml = "igc2kml.igc2kml:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+link-mode = "symlink"
